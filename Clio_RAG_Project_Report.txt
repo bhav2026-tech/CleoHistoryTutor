@@ -1,0 +1,184 @@
+CLIO: A SOURCE-GROUNDED HISTORY TUTOR
+Project Report
+
+1. PROJECT OVERVIEW
+
+Clio is a retrieval-augmented generation (RAG) application that turns a private collection of history documents into a question-answering tutor. Users upload PDF, DOCX, TXT, or Markdown files and ask questions about the material. The application retrieves relevant passages and asks Gemini to answer using only those passages, with inline source citations.
+
+The project uses:
+
+- Streamlit for the user interface
+- LangChain for documents, chunking, embeddings, and vector stores
+- LangGraph for the retrieve-then-generate workflow
+- Gemini for OCR, embeddings, and grounded answer generation
+- SQLite for persistent documents, chunks, and embedding storage
+
+The application supports side-by-side comparison of fixed and semantic chunk retrieval.
+
+
+2. HOW THE PIPELINE WORKS
+
+1. The user uploads one or more documents.
+2. The application extracts text while preserving the filename and page or document location.
+3. The same text is processed with fixed chunking and semantic chunking.
+4. Gemini converts the chunks into embedding vectors.
+5. The documents, chunks, and embeddings are stored in rag_history.db.
+6. When the user asks a question, Gemini creates a query embedding.
+7. Each vector store ranks its chunks using vector similarity.
+8. The six most relevant chunks are retrieved from each strategy.
+9. LangGraph passes the retrieved evidence to Gemini.
+10. Gemini generates a source-grounded response with citations.
+11. Compare both mode displays the fixed and semantic results side by side.
+
+
+3. RETRIEVAL STRATEGIES
+
+Fixed chunks
+
+The fixed strategy divides text into passages of approximately 1,200 characters with 180 characters of overlap. It prefers paragraph and sentence boundaries when possible. This strategy is fast, inexpensive, predictable, and useful as a baseline. However, a topic can be split at an arbitrary length boundary.
+
+Semantic chunks
+
+The semantic strategy identifies changes in meaning between nearby sentences. It embeds sentences, calculates their semantic distance, and creates a boundary when the change is within the largest 15 percent of observed changes. The implementation uses an 85th-percentile breakpoint and a minimum chunk size of 120 characters.
+
+Semantic chunks can keep related information together, but they require additional embedding work during the first indexing run and produce variable-sized passages.
+
+Search method
+
+Both strategies use the same dense vector similarity search. The question and chunks are converted into vectors, the chunks are ranked by similarity to the question, and the top six are returned. The strategies differ in how they create chunks, not in how the final search is performed.
+
+
+4. DATASETS AND SOURCE MATERIAL
+
+The project does not include a fixed public dataset. Its operational dataset is the collection of private documents uploaded by the user at runtime. During development, the workflow was exercised with history-oriented source material, including a user-uploaded PDF of approximately 3.5 MB and synthetic text passages used in automated tests.
+
+Supported formats:
+
+- PDF, with page-aware text extraction
+- Scanned PDF, with Gemini OCR fallback
+- DOCX, using paragraph extraction
+- TXT
+- Markdown
+- JSON evaluation files containing documents, questions, and relevant-text labels
+
+The application searches only the uploaded or saved document library. It does not search the public internet when answering questions.
+
+The included evaluation.example.json file demonstrates the evaluation format. It is not a completed benchmark dataset. A meaningful comparison requires representative questions and human-labelled relevant passages.
+
+
+5. PROMPTS AND AGENT INSTRUCTIONS
+
+Grounded-answer system instruction:
+
+"You are Clio, a careful history tutor. Answer only from the supplied sources and cite every factual claim as [Source N]. If evidence is insufficient, say what is missing. Return readable Markdown, never JSON. Use these sections: 'Short answer' (2-3 sentences), 'Key points' (concise bullets), and 'Evidence digest' (one brief bullet per source actually used)."
+
+Runtime message format:
+
+SOURCES
+[Source 1: filename, location]
+<retrieved passage>
+
+QUESTION
+<user question>
+
+OCR instruction:
+
+"Transcribe all readable text in this PDF exactly. Preserve paragraph order. Return every page, including pages with no text. Do not summarize, explain, or add facts."
+
+Embedding instructions:
+
+- Document passages use retrieval-document embeddings.
+- Questions use retrieval-query embeddings.
+- The original pipeline requests 768-dimensional Gemini embeddings.
+- The LangChain pipeline caches vectors by model, input type, and content hash.
+
+
+6. ITERATIONS TRIED
+
+1. Inspectable baseline
+
+The first version used custom Python functions for fixed chunking, Gemini embeddings, direct cosine similarity, SQLite embedding storage, and source-grounded generation. This created a transparent baseline without framework abstraction.
+
+2. LangChain and LangGraph refactor
+
+Sources were converted into LangChain Documents, separate vector stores were created, and a LangGraph StateGraph was added with explicit retrieve and generate nodes.
+
+3. Semantic chunking
+
+Embedding-based semantic chunking was added with an 85th-percentile breakpoint and a 120-character minimum. Fixed chunks were retained for controlled comparison.
+
+4. Retrieval evaluation
+
+A command-line evaluation harness was created. It runs identical labelled queries through both retrievers and calculates Hit@k and mean reciprocal rank (MRR).
+
+5. Response formatting
+
+Gemini occasionally returned structured content blocks or stringified lists containing provider metadata. A response normalizer was added to extract the answer text, convert JSON into readable Markdown, and remove internal signature metadata.
+
+6. Side-by-side comparison
+
+Compare both mode was added to Streamlit. It displays answers and retrieved evidence from fixed and semantic chunking in parallel.
+
+7. Persistent libraries
+
+SQLite storage was expanded to include extracted documents, both chunk sets, and embeddings. A saved library can be loaded after restarting the app without repeating semantic chunking and document embedding calls.
+
+8. Environment and network troubleshooting
+
+A project-local virtual environment was created to make imports consistent. The Streamlit process was also restarted with normal outbound network access after a restricted process caused a Gemini connection-refused error.
+
+
+7. EVALUATION APPROACH
+
+The project evaluates retrieval rather than asking the language model to judge itself. Each evaluation question includes distinctive text expected to occur in a relevant passage.
+
+Hit@k
+
+Hit@k measures whether at least one relevant passage appears within the top k retrieved results.
+
+Mean reciprocal rank (MRR)
+
+MRR rewards retrievers that place the first relevant result near the top. A relevant result at rank 1 contributes 1.0, rank 2 contributes 0.5, and rank 3 contributes approximately 0.33.
+
+Both strategies receive the same questions and retrieval cutoff. The report also includes chunk counts because the semantic strategy can change index granularity.
+
+No final claim that one strategy is better is included because the repository does not yet contain a completed representative labelled dataset.
+
+
+8. LEARNINGS AND OBSERVATIONS
+
+- Chunking and retrieval are separate decisions. The strategies change passage boundaries but use the same similarity search.
+- Semantic chunking is not automatically better. It may improve topic coherence but costs more during initial indexing.
+- A fixed baseline is necessary to attribute improvements to semantic chunking.
+- Fluent answers do not prove good retrieval. Retrieval quality requires labelled evidence and metrics.
+- Provider responses must be normalized because SDK output may contain structured blocks instead of plain strings.
+- Persistence improves usability. Storing documents and chunk sets prevents repeated preprocessing after restarts.
+- Filenames and page locations are essential because they let users audit citations.
+- Application behavior also depends on the Python environment and network access.
+
+
+9. LIMITATIONS AND NEXT STEPS
+
+- Build a larger labelled history-question dataset.
+- Add precision@k or normalized discounted cumulative gain when graded relevance labels are available.
+- Compare reranking, maximal marginal relevance, and hybrid keyword-vector retrieval.
+- Replace the experimental semantic chunker if its upstream package is retired.
+- Add controls for deleting saved libraries and managing storage size.
+- Evaluate answer faithfulness separately from retrieval quality.
+
+
+10. IMPLEMENTATION SUMMARY
+
+The finished project is a source-grounded history tutor that combines a transparent baseline with a LangChain and LangGraph RAG workflow. Gemini supplies OCR, embeddings, and grounded generation. Streamlit provides document upload, strategy selection, side-by-side comparison, and evidence inspection. SQLite stores documents, chunks, and embeddings across restarts.
+
+The most important result is not simply that the app answers questions. It exposes its evidence, compares two retrieval designs under the same conditions, and provides a quantitative evaluation path instead of relying only on subjective impressions.
+
+
+KEY PROJECT FILES
+
+- app.py: Streamlit interface and comparison view
+- langchain_rag.py: chunking, vector stores, LangGraph workflow, persistence, formatting, and evaluation
+- rag.py: original inspectable pipeline and cosine similarity
+- evaluate_retrieval.py: command-line evaluation runner
+- evaluation.example.json: labelled-query example
+- tests/: automated tests for chunking, retrieval, OCR, formatting, and cache reuse

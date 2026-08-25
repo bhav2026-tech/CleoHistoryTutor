@@ -1,0 +1,9 @@
+{
+  "documents": ["your-source.txt"],
+  "queries": [
+    {
+      "question": "What event directly caused the policy change?",
+      "relevant_text": ["a distinctive phrase from the passage containing the answer"]
+    }
+  ]
+}

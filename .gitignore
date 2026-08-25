@@ -1,0 +1,11 @@
+.env
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.streamlit/
+rag_history.db
+~$*.docx
+*_draft.docx
+.docx_tmp/
+report_render/
